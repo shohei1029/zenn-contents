@@ -9,35 +9,137 @@ publication_name: microsoft
 
 # はじめに
 
-# ハンズオン
+[Prompt flow](https://learn.microsoft.com/ja-jp/azure/machine-learning/prompt-flow/overview-what-is-prompt-flow) (プロンプトフローとも表記)は Microsoft が開発している開発者用ツールで、LLM を組み込んだアプリケーションのためのプロンプト構築・評価、そしてデプロイをサポートします。
 
-## フローのカスタマイズ
+Azure Machine Learning から簡単に利用でき、分かりやすい解説記事も登場しています。
 
-```zsh
-% pf connection create --file ../../connections/azure_openai.yml
+- [Prompt Flow が使えるようになったから、もう LangChain とか自分でホストしなくていい世界になったのかもしれない。 | DevelopersIO](https://dev.classmethod.jp/articles/azureml-prompt-flow-ktkr/)
+- [【日本最速？】Azure AI Studio で Prompt Flow を触ってみた感想 #Azure - Qiita](https://qiita.com/lazy-kz/items/5f6f8dc821d25fc484db)
+
+Prompt flow はもともとは Azure Machine Learning 内の機能だったのですが、いまは**Azure Machine Learning とは独立して使用できるツール**です。**CLI/SDK や VS Code 拡張機能が提供**されており、それらの中で完結して利用できます。
+
+ただ、Prompt flow は Azure Machine Learning の中で使うツールというイメージが広がっているため、本記事では Prompt flow の CLI を使ってフローの作成、評価、チューニングを行う流れを紹介します。
+
+リポジトリ：https://github.com/microsoft/promptflow
+
+# 手順
+
+## 前提条件
+
+Azure OpenAI のリソースと、`gpt-35-turbo`モデルのデプロイが完了している前提です。ただ、後述するように接続設定のファイルを変更すれば OpenAI API でも利用できます。
+
+## Prompt flow のインストール
+
+`pip`でインストールします。
+
+```shell
+pip install promptflow promptflow-tools
+```
+
+執筆時点では Python 3.9 系が推奨されています。
+
+## リポジトリの準備
+
+本記事は基本的にこちらの[チュートリアル](https://github.com/microsoft/promptflow/blob/main/examples/tutorials/flow-fine-tuning-evaluation/promptflow-quality-improvement.md)の内容に沿って実施しています。
+
+チュートリアルが含まれるリポジトリを clone します。
+
+```shell
+git clone https://github.com/microsoft/promptflow.git
+```
+
+```shell
+cd promptflow/examples/tutorials/flow-fine-tuning-evaluation
+```
+
+## Azure OpenAI (または OpenAI API)との接続設定
+
+`azure_openai.yml`の内容をもとに Azure OpenAI Service との接続構成を設定します。
+ファイルの中身はこのような YAML ファイルになっており、Azure portal でデプロイした Azure OpenAI リソースのキーや API base の情報を記載します。Azure OpenAI ではなく OpenAI 社の API を使うことも可能です。
+
+```yaml:azure_openai.yml
+$schema: https://azuremlschemas.azureedge.net/promptflow/latest/AzureOpenAIConnection.schema.json
+name: open_ai_connection
+type: azure_open_ai
+api_key: "<Your_API_key>"
+api_base: "https://openai-lab-swedencentral.openai.azure.com/"
+api_type: "azure"
+```
+
+:::message
+OpenAI API を使う場合はこのような書き方になります。このファイルも同じディレクトに置かれています。
+
+```yaml:openai.yml
+$schema: https://azuremlschemas.azureedge.net/promptflow/latest/OpenAIConnection.schema.json
+name: open_ai_connection
+type: open_ai
+api_key: "<user-input>"
+organization: "" # optional
+```
+
+:::
+
+次のコマンドでコネクションを作成します。
+
+```shell
+pf connection create --file ../../connections/azure_openai.yml
+```
+
+:::message
+`azure_openai.yml`ファイルを書き換えなくても、`pf connection create`コマンド実行時の引数で各項目を上書きできます。
+
+```shell
+# Override keys with --set to avoid yaml file changes
+pf connection create --file ../../connections/azure_openai.yml --set api_key=<your_api_key> api_base=<your_api_base> --name open_ai_connection
+```
+
+:::
+
+:::message
+私が`pf connection create`を実行したところ、`Connection create failed with StoreConnectionEncryptionKeyError`というエラーが発生しました (WSL2, Ubuntu 22.04 環境)。どうやら WSL 環境で発生するエラーのようです ([FAQ](https://microsoft.github.io/promptflow/how-to-guides/faq.html#connection-creation-failed-with-storeconnectionencryptionkeyerror)より)
+
+```shell
 Connection create failed with StoreConnectionEncryptionKeyError: System keyring backend service not found in your operating system. See https://pypi.org/project/keyring/ to install requirement for different operating system, or 'pip install keyrings.alt' to use the third-party backend. Reach more detail about this error at https://microsoft.github.io/promptflow/how-to-guides/faq.html#connection-creation-failed-with-storeconnectionencryptionkeyerror
 ```
 
-`pip install keyrings.alt`
+上記エラーが発生した場合は次のコマンドで`keyrings.alt`をインストールしてください。
 
-```zsh
-  pf connection create --file ../../connections/azure_openai.yml
+```shell
+pip install keyrings.alt
+```
+
+:::
+
+`pf connection create`の実行がうまくいくと、次のような結果が表示されます。
+
+```json
 {
-    "name": "open_ai_connection",
-    "module": "promptflow.connections",
-    "created_date": "2024-01-01T17:04:38.601690",
-    "last_modified_date": "2024-01-01T17:04:38.601690",
-    "type": "azure_open_ai",
-    "api_key": "******",
-    "api_base": "https://openai-lab-swedencentral.openai.azure.com/",
-    "api_type": "azure",
-    "api_version": "2023-07-01-preview"
+  "name": "open_ai_connection",
+  "module": "promptflow.connections",
+  "created_date": "2024-01-01T17:04:38.601690",
+  "last_modified_date": "2024-01-01T17:04:38.601690",
+  "type": "azure_open_ai",
+  "api_key": "******",
+  "api_base": "https://openai-lab-swedencentral.openai.azure.com/",
+  "api_type": "azure",
+  "api_version": "2023-07-01-preview"
 }
 ```
 
-もともと：
+## フローのカスタマイズ
 
-```:chat.jinja2
+もともと用意されているチャットフローを修正していきます。
+まず、フローが格納されているディレクトリへ移動します。
+
+```shell
+cd ../../flows/chat/basic-chat/
+```
+
+`chat.jinja2`の中身を書き換えます。
+
+書き換え前：
+
+```jinja2:chat.jinja2
 system:
 You are a helpful assistant.
 
@@ -54,7 +156,7 @@ user:
 
 書き換え後：
 
-```:chat.jinja2
+```jinja2:chat.jinja2
 system:
 You are an assistant to calculate the answer to the provided math problems.
 Please return the final numerical answer only, without any accompanying reasoning or explanation.
@@ -70,7 +172,9 @@ user:
 {{question}}
 ```
 
-```:flow.dag.yaml
+フロー全体の構成設定は`flow.dag.yaml`に記載されています。ここで Azure OpenAI や他に利用する外部サービスとの接続設定 (モデル名、temperature などのパラメーター設定を含む)、フローの入出力、処理を行うノードの定義などを行います。
+
+```yaml:flow.dag.yaml
 $schema: https://azuremlschemas.azureedge.net/promptflow/latest/Flow.schema.json
 inputs:
   chat_history:
@@ -107,8 +211,22 @@ environment:
     python_requirements_txt: requirements.txt
 ```
 
-```zsh
-  pf flow test --flow ./basic-chat --inputs question="1+1=?"
+:::message
+今回は Azure OpenAI`gpt-35-turbo`のモデル (デプロイメント)になっていますが、デプロイ名が異なる場合は修正します。また、connection 名を上記の`azure_openai.yml`とは違う名前に変更している場合はこちらも合わせて変更してください。
+:::
+
+## フローのテスト実行
+
+1 つ上のディレクトリへ行き、先ほどのファイル群がある`basic-chat`ディレクトリをプロンプトのフローとして実行します。フローへの入力として`question="1+1=?"`を与えています。
+
+```shell
+cd ..
+pf flow test --flow ./basic-chat --inputs question="1+1=?"
+```
+
+実行ログが表示された後に、JSON 形式で結果が出力されます。
+
+```shell
 2024-01-01 17:06:04 +0900  265398 execution.flow     INFO     Start executing nodes in thread pool mode.
 2024-01-01 17:06:04 +0900  265398 execution.flow     INFO     Start to run 1 nodes with concurrency level 16.
 2024-01-01 17:06:04 +0900  265398 execution.flow     INFO     Executing node chat. node run id: 6a2241c5-c90e-4cb4-88c5-ee5a1753ae21_chat_0
@@ -118,37 +236,72 @@ environment:
 }
 ```
 
-## プロンプトのクオリティを評価
+入力`question="1+1=?"`に対する出力として正しく`"2"`と正解しています。
 
-GitHub に載っているサンプルだと実行に失敗したため、ファイルパスなどを若干修正し、下記で実行しました。
+もっと複雑な入力を与えてみましょう。
 
-```zsh
-  pf run create --flow ./basic-chat --data ./chat-math-variant/data.jsonl --column-mapping question='${data.question}' chat_history=\[] --connections chat.connection=open_ai_connection chat.deployment_name=gpt-4-turbo --stream --name $base_run_name
+```shell
+pf flow test --flow ./basic-chat --inputs question="We are allowed to remove exactly one integer from the list $$-1,0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,11,$$and then we choose two distinct integers at random from the remaining list. What number should we remove if we wish to maximize the probability that the sum of the two chosen numbers is 10?"
 ```
 
-実行結果：
+出力：
 
-```zsh
+```JSON
+{
+    "answer": "-1"
+}
+```
+
+正しい計算結果は 5 なので、誤った出力が行われていることが分かります。ここから、プロンプトを修正してもっと複雑な数値問題にもうまく回答できるようにしていきます。
+
+## プロンプトのクオリティを評価
+
+Prompt flow では、複数の入力をまとめたファイルを用意してフローをバッチ実行し、それぞれの結果を評価できます。
+
+`promptflow/examples/flows/chat/chat-math-variant/data.jsonl`には 20 個のテストデータが格納されています。
+中身は、入力となる質問 (`question`)、正解の値 (`answer`)、フローの実行結果 (`raw_answer`)から構成されています。
+
+```JSON
+{
+    "question": "Determine the number of ways to arrange the letters of the word PROOF.",
+    "answer": "60",
+    "raw_answer": "There are two O's and five total letters, so the answer is $\\dfrac{5!}{2!} = \\boxed{60}$."
+}
+```
+
+まず、このデータの question 部分を入力とし、ここまでで利用した`basic-chat`のフローに対してバッチ実行してみましょう。
+
+```shell
+base_run_name="base_run"
+pf run create --flow ./basic-chat --data ./chat-math-variant/data.jsonl --column-mapping question='${data.question}' chat_history=\[] --connections chat.connection=open_ai_connection chat.deployment_name=gpt-35-turbo --stream --name $base_run_name
+```
+
+なお、コピペで実行しやすいよう`chat.deployment_name=gpt-35-turbo`としていますが、私は GPT-4 Turbo を利用したため、実際は`chat.deployment_name=gpt-4-turbo`で実行しています。
+また、リポジトリに載っているサンプルそのままだと実行に失敗したため、ファイルパスなどは若干修正しました。
+
+実行結果としてテキストの情報と JSON が出力されます。ここで消費したトークン数も確認できます。
+
+```shell
 ======= Run Summary =======
 
-Run name: "base_run_2"
+Run name: "base_run"
 Run status: "Completed"
 Start time: "2024-01-01 17:23:43.625560"
 Duration: "0:00:08.351035"
-Output path: "/home/shohei/.promptflow/.runs/base_run_2"
+Output path: "/home/shohei/.promptflow/.runs/base_run"
 
 
 
 {
-    "name": "base_run_2",
+    "name": "base_run_",
     "created_on": "2024-01-01T17:23:43.625560",
     "status": "Completed",
-    "display_name": "base_run_2",
+    "display_name": "base_run",
     "description": null,
     "tags": null,
     "properties": {
         "flow_path": "/home/shohei/projects/microsoft/promptflow/examples/flows/chat/basic-chat",
-        "output_path": "/home/shohei/.promptflow/.runs/base_run_2",
+        "output_path": "/home/shohei/.promptflow/.runs/base_run",
         "system_metrics": {
             "total_tokens": 1854,
             "prompt_tokens": 1788,
@@ -158,42 +311,399 @@ Output path: "/home/shohei/.promptflow/.runs/base_run_2"
     },
     "flow_name": "basic-chat",
     "data": "/home/shohei/projects/microsoft/promptflow/examples/flows/chat/chat-math-variant/data.jsonl",
-    "output": "/home/shohei/.promptflow/.runs/base_run_2/flow_outputs"
+    "output": "/home/shohei/.promptflow/.runs/base_run/flow_outputs"
 }
 ```
 
-実行結果の確認
+`pf run show-details`コマンドを利用することで実行結果を各データごとに確認できます。`inputs.question`がフローへの入力で、`outputs.answer`がフローの出力です。
 
-```zsh
-pf run show-details --name $base_run_name
-+----+---------------+-----------------+---------------+---------------+
-|    | inputs.chat   | inputs.question |   inputs.line | outputs.ans   |
-|    | _history      |                 |       _number | wer           |
-+====+===============+=================+===============+===============+
-|  0 | []            | Compute $\dbi   |             0 | 4368          |
-|    |               | nom{16}{5}$.    |               |               |
-+----+---------------+-----------------+---------------+---------------+
-|  1 | []            | Determine the   |             1 | 60            |
-|    |               | number of       |               |               |
-|    |               | ways to         |               |               |
-|    |               | arrange the     |               |               |
-|    |               | letters of      |               |               |
-|    |               | the word        |               |               |
-|    |               | PROOF.          |               |               |
-+----+---------------+-----------------+---------------+---------------+
-| ..(省略) | ...           | ...             |...            | ...           |
+```shell
+  pf run show-details --name $base_run_name
++----+----------------+--------------+--------------+----------------+
+|    | inputs.quest   | inputs.cha   |   inputs.lin | outputs.answ   |
+|    | ion            | t_history    |     e_number | er             |
++====+================+==============+==============+================+
+|  0 | Compute $\db   | []           |            0 | 4368           |
+|    | inom{16}{5}$   |              |              |                |
+|    | .              |              |              |                |
++----+----------------+--------------+--------------+----------------+
+|  1 | Determine      | []           |            1 | 60             |
+|    | the number     |              |              |                |
+|    | of ways to     |              |              |                |
+|    | arrange the    |              |              |                |
+|    | letters of     |              |              |                |
+|    | the word       |              |              |                |
+|    | PROOF.         |              |              |                |
++----+----------------+--------------+--------------+----------------+
+|  2 | 23 people      | []           |            2 | 253            |
+|    | attend a       |              |              |                |
+|    | party. Each    |              |              |                |
+|    | person         |              |              |                |
+|    | shakes hands   |              |              |                |
+|    | with at most   |              |              |                |
+|    | 22 other       |              |              |                |
+|    | people. What   |              |              |                |
+|    | is the         |              |              |                |
+|    | maximum        |              |              |                |
+|    | possible       |              |              |                |
+|    | number of      |              |              |                |
+|    | handshakes,    |              |              |                |
+|    | assuming       |              |              |                |
+|    | that any two   |              |              |                |
+|    | people can     |              |              |                |
+|    | shake hands    |              |              |                |
+|    | at most        |              |              |                |
+|    | once?          |              |              |                |
++----+----------------+--------------+--------------+----------------+
+|  3 | James has 7    | []           |            3 | 1/7            |
+|    | apples. 4 of   |              |              |                |
+|    | them are       |              |              |                |
+|    | red, and 3     |              |              |                |
+|    | of them are    |              |              |                |
+|    | green. If he   |              |              |                |
+|    | chooses 2      |              |              |                |
+|    | apples at      |              |              |                |
+|    | random, what   |              |              |                |
+|    | is the         |              |              |                |
+|    | probability    |              |              |                |
+|    | that both      |              |              |                |
+|    | the apples     |              |              |                |
+|    | he chooses     |              |              |                |
+|    | are green?     |              |              |                |
++----+----------------+--------------+--------------+----------------+
+|  4 | We are         | []           |            4 | 4              |
+|    | allowed to     |              |              |                |
+|    | remove         |              |              |                |
+|    | exactly one    |              |              |                |
+|    | integer from   |              |              |                |
+|    | the list       |              |              |                |
+|    | $$-1,0, 1,     |              |              |                |
+|    | 2, 3, 4, 5,    |              |              |                |
+|    | 6, 7, 8, 9,    |              |              |                |
+|    | 10,11,$$and    |              |              |                |
+|    | then we        |              |              |                |
+|    | choose two     |              |              |                |
+|    | distinct       |              |              |                |
+|    | integers at    |              |              |                |
+|    | random from    |              |              |                |
+|    | the            |              |              |                |
+|    | remaining      |              |              |                |
+|    | list.  What    |              |              |                |
+|    | number         |              |              |                |
+|    | should we      |              |              |                |
+|    | remove if we   |              |              |                |
+|    | wish to        |              |              |                |
+|    | maximize the   |              |              |                |
+|    | probability    |              |              |                |
+|    | that the sum   |              |              |                |
+|    | of the two     |              |              |                |
+|    | chosen         |              |              |                |
+|    | numbers is     |              |              |                |
+|    | 10?            |              |              |                |
++----+----------------+--------------+--------------+----------------+
+|  5 | The numbers    | []           |            5 | 2/5            |
+|    | 1 through 25   |              |              |                |
+|    | are written    |              |              |                |
+|    | on 25 cards    |              |              |                |
+|    | with one       |              |              |                |
+|    | number on      |              |              |                |
+|    | each card.     |              |              |                |
+|    | Sara picks     |              |              |                |
+|    | one of the     |              |              |                |
+|    | 25 cards at    |              |              |                |
+|    | random. What   |              |              |                |
+|    | is the         |              |              |                |
+|    | probability    |              |              |                |
+|    | that the       |              |              |                |
+|    | number on      |              |              |                |
+|    | her card       |              |              |                |
+|    | will be a      |              |              |                |
+|    | multiple of    |              |              |                |
+|    | 2 or 5?        |              |              |                |
+|    | Express your   |              |              |                |
+|    | answer as a    |              |              |                |
+|    | common         |              |              |                |
+|    | fraction.      |              |              |                |
++----+----------------+--------------+--------------+----------------+
+|  6 | A bag has 3    | []           |            6 | 3/16           |
+|    | red marbles    |              |              |                |
+|    | and 5 white    |              |              |                |
+|    | marbles.       |              |              |                |
+|    | Two marbles    |              |              |                |
+|    | are drawn      |              |              |                |
+|    | from the bag   |              |              |                |
+|    | and not        |              |              |                |
+|    | replaced.      |              |              |                |
+|    | What is the    |              |              |                |
+|    | probability    |              |              |                |
+|    | that the       |              |              |                |
+|    | first marble   |              |              |                |
+|    | is red and     |              |              |                |
+|    | the second     |              |              |                |
+|    | marble is      |              |              |                |
+|    | white?         |              |              |                |
++----+----------------+--------------+--------------+----------------+
+|  7 | Find the       | []           |            7 | The largest    |
+|    | largest        |              |              | prime          |
+|    | prime          |              |              | divisor of     |
+|    | divisor of     |              |              | 11! + 12! is   |
+|    | 11! + 12!      |              |              | 13.            |
++----+----------------+--------------+--------------+----------------+
+|  8 | These two      | []           |            8 | 2/3            |
+|    | spinners are   |              |              |                |
+|    | divided into   |              |              |                |
+|    | thirds and     |              |              |                |
+|    | quarters, re   |              |              |                |
+|    | spectively.    |              |              |                |
+|    | If each of     |              |              |                |
+|    | these          |              |              |                |
+|    | spinners is    |              |              |                |
+|    | spun once,     |              |              |                |
+|    | what is the    |              |              |                |
+|    | probability    |              |              |                |
+|    | that the       |              |              |                |
+|    | product of     |              |              |                |
+|    | the results    |              |              |                |
+|    | of the two     |              |              |                |
+|    | spins will     |              |              |                |
+|    | be an even     |              |              |                |
+|    | number?        |              |              |                |
+|    | Express your   |              |              |                |
+|    | answer as a    |              |              |                |
+|    | common         |              |              |                |
+|    | fraction.      |              |              |                |
+|    | [asy]  size(   |              |              |                |
+|    | 5cm,5cm);  d   |              |              |                |
+|    | raw(Circle((   |              |              |                |
+|    | 0,0),1));  d   |              |              |                |
+|    | raw(Circle((   |              |              |                |
+|    | 3,0),1));  d   |              |              |                |
+|    | raw((0,0)--(   |              |              |                |
+|    | 0,1));  draw   |              |              |                |
+|    | ((0,0)--(-0.   |              |              |                |
+|    | 9,-0.47));     |              |              |                |
+|    | draw((0,0)--   |              |              |                |
+|    | (0.9,-0.47))   |              |              |                |
+|    | ;  draw((2,0   |              |              |                |
+|    | )--(4,0));     |              |              |                |
+|    | draw((3,1)--   |              |              |                |
+|    | (3,-1));  la   |              |              |                |
+|    | bel("$3$",(-   |              |              |                |
+|    | 0.5,0.3));     |              |              |                |
+|    | label("$4$",   |              |              |                |
+|    | (0.5,0.3));    |              |              |                |
+|    | label("$5$",   |              |              |                |
+|    | (0,-0.5));     |              |              |                |
+|    | label("$5$",   |              |              |                |
+|    | (2.6,-0.4));   |              |              |                |
+|    | label("$6$",   |              |              |                |
+|    | (2.6,0.4));    |              |              |                |
+|    | label("$7$",   |              |              |                |
+|    | (3.4,0.4));    |              |              |                |
+|    | label("$8$",   |              |              |                |
+|    | (3.4,-0.4));   |              |              |                |
+|    | draw((0,0)--   |              |              |                |
+|    | (0.2,0.8),Ar   |              |              |                |
+|    | row);  draw(   |              |              |                |
+|    | (3,0)--(3.2,   |              |              |                |
+|    | 0.8),Arrow);   |              |              |                |
+|    | [/asy]         |              |              |                |
++----+----------------+--------------+--------------+----------------+
+|  9 | No two         | []           |            9 | 5/26           |
+|    | students in    |              |              |                |
+|    | Mrs. Vale's    |              |              |                |
+|    | 26-student     |              |              |                |
+|    | mathematics    |              |              |                |
+|    | class have     |              |              |                |
+|    | the same two   |              |              |                |
+|    | initials.      |              |              |                |
+|    | Each           |              |              |                |
+|    | student's      |              |              |                |
+|    | first name     |              |              |                |
+|    | and last       |              |              |                |
+|    | name begin     |              |              |                |
+|    | with the       |              |              |                |
+|    | same letter.   |              |              |                |
+|    | If the         |              |              |                |
+|    | letter ``Y''   |              |              |                |
+|    | is             |              |              |                |
+|    | considered a   |              |              |                |
+|    | vowel, what    |              |              |                |
+|    | is the         |              |              |                |
+|    | probability    |              |              |                |
+|    | of randomly    |              |              |                |
+|    | picking a      |              |              |                |
+|    | student        |              |              |                |
+|    | whose          |              |              |                |
+|    | initials are   |              |              |                |
+|    | vowels?        |              |              |                |
+|    | Express your   |              |              |                |
+|    | answer as a    |              |              |                |
+|    | common         |              |              |                |
+|    | fraction.      |              |              |                |
++----+----------------+--------------+--------------+----------------+
+| 10 | What is the    | []           |           10 | 3.5            |
+|    | expected       |              |              |                |
+|    | value of the   |              |              |                |
+|    | roll of a      |              |              |                |
+|    | standard       |              |              |                |
+|    | 6-sided die?   |              |              |                |
++----+----------------+--------------+--------------+----------------+
+| 11 | How many       | []           |           11 | 8              |
+|    | positive       |              |              |                |
+|    | divisors of    |              |              |                |
+|    | 30! are        |              |              |                |
+|    | prime?         |              |              |                |
++----+----------------+--------------+--------------+----------------+
+| 12 | Marius is      | []           |           12 | 120 ways.      |
+|    | entering a     |              |              |                |
+|    | wildlife       |              |              |                |
+|    | photo          |              |              |                |
+|    | contest, and   |              |              |                |
+|    | wishes to      |              |              |                |
+|    | arrange his    |              |              |                |
+|    | seven snow     |              |              |                |
+|    | leopards of    |              |              |                |
+|    | different      |              |              |                |
+|    | heights in a   |              |              |                |
+|    | row. If the    |              |              |                |
+|    | shortest two   |              |              |                |
+|    | leopards       |              |              |                |
+|    | have           |              |              |                |
+|    | inferiority    |              |              |                |
+|    | complexes      |              |              |                |
+|    | and demand     |              |              |                |
+|    | to be placed   |              |              |                |
+|    | at the ends    |              |              |                |
+|    | of the row,    |              |              |                |
+|    | how many       |              |              |                |
+|    | ways can he    |              |              |                |
+|    | line up the    |              |              |                |
+|    | leopards?      |              |              |                |
++----+----------------+--------------+--------------+----------------+
+| 13 | My school's    | []           |           13 | 3003           |
+|    | math club      |              |              |                |
+|    | has 6 boys     |              |              |                |
+|    | and 8 girls.   |              |              |                |
+|    | I need to      |              |              |                |
+|    | select a       |              |              |                |
+|    | team to send   |              |              |                |
+|    | to the state   |              |              |                |
+|    | math           |              |              |                |
+|    | competition.   |              |              |                |
+|    | We want 6      |              |              |                |
+|    | people on      |              |              |                |
+|    | the team.      |              |              |                |
+|    | In how many    |              |              |                |
+|    | ways can I     |              |              |                |
+|    | select the     |              |              |                |
+|    | team without   |              |              |                |
+|    | restrictions   |              |              |                |
+|    | ?              |              |              |                |
++----+----------------+--------------+--------------+----------------+
+| 14 | Nathan will    | []           |           14 | 1/12           |
+|    | roll two       |              |              |                |
+|    | six-sided      |              |              |                |
+|    | dice. What     |              |              |                |
+|    | is the         |              |              |                |
+|    | probability    |              |              |                |
+|    | that he will   |              |              |                |
+|    | roll a         |              |              |                |
+|    | number less    |              |              |                |
+|    | than three     |              |              |                |
+|    | on the first   |              |              |                |
+|    | die and a      |              |              |                |
+|    | number         |              |              |                |
+|    | greater than   |              |              |                |
+|    | three on the   |              |              |                |
+|    | second die?    |              |              |                |
+|    | Express your   |              |              |                |
+|    | answer as a    |              |              |                |
+|    | common         |              |              |                |
+|    | fraction.      |              |              |                |
++----+----------------+--------------+--------------+----------------+
+| 15 | A Senate       | []           |           15 | There are 56   |
+|    | committee      |              |              | ways to form   |
+|    | has 8          |              |              | such a subco   |
+|    | Republicans    |              |              | mmittee.       |
+|    | and 6          |              |              |                |
+|    | Democrats.     |              |              |                |
+|    | In how many    |              |              |                |
+|    | ways can we    |              |              |                |
+|    | form a         |              |              |                |
+|    | subcommittee   |              |              |                |
+|    | with 3         |              |              |                |
+|    | Republicans    |              |              |                |
+|    | and 2          |              |              |                |
+|    | Democrats?     |              |              |                |
++----+----------------+--------------+--------------+----------------+
+| 16 | How many       | []           |           16 | 6              |
+|    | different      |              |              |                |
+|    | positive,      |              |              |                |
+|    | four-digit     |              |              |                |
+|    | integers can   |              |              |                |
+|    | be formed      |              |              |                |
+|    | using the      |              |              |                |
+|    | digits 2, 2,   |              |              |                |
+|    | 9 and 9?       |              |              |                |
++----+----------------+--------------+--------------+----------------+
+| 17 | I won a trip   | []           |           17 | 70 ways.       |
+|    | for four to    |              |              |                |
+|    | the Super      |              |              |                |
+|    | Bowl.  I can   |              |              |                |
+|    | bring three    |              |              |                |
+|    | of my          |              |              |                |
+|    | friends.  I    |              |              |                |
+|    | have 8         |              |              |                |
+|    | friends.  In   |              |              |                |
+|    | how many       |              |              |                |
+|    | ways can I     |              |              |                |
+|    | form my        |              |              |                |
+|    | Super Bowl     |              |              |                |
+|    | party?         |              |              |                |
++----+----------------+--------------+--------------+----------------+
+| 18 | Determine      | []           |           18 | 60             |
+|    | the number     |              |              |                |
+|    | of ways to     |              |              |                |
+|    | arrange the    |              |              |                |
+|    | letters of     |              |              |                |
+|    | the word       |              |              |                |
+|    | MADAM.         |              |              |                |
++----+----------------+--------------+--------------+----------------+
+| 19 | A palindrome   | []           |           19 | 900            |
+|    | is a number    |              |              |                |
+|    | that reads     |              |              |                |
+|    | the same       |              |              |                |
+|    | forwards and   |              |              |                |
+|    | backwards,     |              |              |                |
+|    | such as        |              |              |                |
+|    | 3003. How      |              |              |                |
+|    | many           |              |              |                |
+|    | positive       |              |              |                |
+|    | four-digit     |              |              |                |
+|    | integers are   |              |              |                |
+|    | palindromes?   |              |              |                |
++----+----------------+--------------+--------------+----------------+
 ```
 
-## 実行結果の評価
+:::
 
-```zsh
+## フロー実行結果の評価
+
+続いて、**評価フロー**を実行し、先ほどのチャットフローの実行結果を評価します。
+
+評価フローは`promptflow/examples/flows/evaluation/eval-chat-math`に存在します。
+評価フローへの入力は、正解 (groundtruth)として先ほどの`data.jsonl`の`answer`列が、予測 (prediction)として、先ほどのフロー (`$base_run_name`として定義したもの)実行結果の`outputs.answer`が与えられます。
+
+```shell
+cd ../evaluation
 eval_run_name="eval_run"
 pf run create --flow ./eval-chat-math --data ../chat/chat-math-variant/data.jsonl --column-mapping groundtruth='${data.answer}' prediction='${run.outputs.answer}' --stream --run $base_run_name --name $eval_run_name
 ```
 
 実行結果：
 
-```zsh
+```shell
 ======= Run Summary =======
 
 Run name: "eval_run"
@@ -224,23 +734,23 @@ Output path: "/home/shohei/.promptflow/.runs/eval_run"
     "flow_name": "eval-chat-math",
     "data": "/home/shohei/projects/microsoft/promptflow/examples/flows/chat/chat-math-variant/data.jsonl",
     "output": "/home/shohei/.promptflow/.runs/eval_run/flow_outputs",
-    "run": "base_run_2"
+    "run": "base_run"
 }
 ```
 
-評価フローのメトリックを取得
+`pf run show-metrics`コマンドを利用し評価フローのメトリックを取得します。
 
-```zsh
-  pf run show-metrics --name $eval_run_name
+```shell
+pf run show-metrics --name $eval_run_name
 {
     "accuracy": 0.4,
     "error_rate": 0.6
 }
 ```
 
-ブラウザで、`base_run`と`eval_run`の実行結果を一対一で可視化して比較できます。
+`pf run visualize`を利用すると、ブラウザで`base_run`と`eval_run`の実行結果を一対一で可視化して比較できます。
 
-```zsh
+```shell
 pf run visualize --name "$base_run_name,$eval_run_name"
 The HTML file is generated at '/tmp/pf-visualize-detail-dk5ldej6.html'.
 Trying to view the result in a web browser...
@@ -248,9 +758,9 @@ Failed to visualize from the web browser, the HTML file locates at '/tmp/pf-visu
 You can manually open it with your web browser, or try SDK to visualize it.
 ```
 
-私が WSL 環境で実行しているためかブラウザの起動自体には失敗していますが、HTML ファイル (`/tmp/pf-visualize-detail-dk5ldej6.html`)は無事に生成されています。こちらをブラウザで表示します。
+私が WSL 環境で実行しているためかブラウザの起動自体には失敗していますが、HTML ファイル (`/tmp/pf-visualize-detail-dk5ldej6.html`)は無事に生成されています。こちらをブラウザで表示します (私の場合は一度 WIndows 環境へコピーしてブラウザ実行しましたが、もっとうまいやり方はあるはずです)。
 
-実行結果の可視化がされています。今回はフローへの 20 個の入力/出力があった中で、正解 (ground truth)と予測値 (チャットフロー実行結果)がそれぞれ一致していたかどうかの結果がテーブルで表示されています。また、右上にはおなじみのグラフビューでフローを構成するノードが確認できます。
+実行結果の可視化がされています。今回はフローへの 20 個の入力/出力があった中で、正解 (ground truth)と予測値 (チャットフロー実行結果)がそれぞれ一致していたかどうかの結果がテーブルで表示されています。また、右上ではグラフビューでフローを構成するノードが確認できます。
 
 ![](/images/promptflow-cli/flow-viz-1.png)
 
@@ -259,7 +769,7 @@ You can manually open it with your web browser, or try SDK to visualize it.
 プロンプトの改善をしていきます。Chain-of-Thought (CoT)のアプローチを取り入れたプロンプトのフローを実行し、その回答精度を評価します。
 `/chat/chat-math-variant`フォルダに 2 つの新たなプロンプトが用意されています。
 
-```:chat_variant_1.jinja2
+```jinja2:chat_variant_1.jinja2
 system:
 You are an assistant to calculate the answer to the provided math problems.
 Please think step by step.
@@ -285,7 +795,7 @@ user:
 {{question}}
 ```
 
-```:chat_variant_2.jinja2
+```jinja2:chat_variant_2.jinja2
 system:
 You are an assistant to calculate the answer to the provided math problems.
 Please think step by step.
@@ -333,15 +843,19 @@ user:
 
 `promptflow/examples/flows`フォルダに移動し、フローの実行名を環境変数に設定します。
 
-```zsh
+```shell
 cd ..
 base_run_name="base_run_variant_"
 eval_run_name="eval_run_variant_"
 ```
 
-フローを実行します。もし Azure OpenAI とのコネクション名をデフォルトから変更している場合は、それに合わせて`flow.dag.yaml`の`connection`パラメーターを変更してください。
+フローを実行します。長くて複雑なコマンドに見えますが、やっていることはこれまで行ったことの集合体です。
 
-```zsh
+:::message
+もし Azure OpenAI とのコネクション名をデフォルトから変更している場合は、それに合わせて`flow.dag.yaml`の`connection`パラメーターを変更してください。
+:::
+
+```shell
 # Test and evaluate variant_0:
 # Test-run
 pf run create --flow ./chat/chat-math-variant --data ./chat/chat-math-variant/data.jsonl --column-mapping question='${data.question}' chat_history=\[] --variant '${chat.variant_0}' --stream  --name "${base_run_name}0"
@@ -363,7 +877,7 @@ pf run create --flow ./evaluation/eval-chat-math --data ./chat/chat-math-variant
 
 評価フローのメトリックを取得します。
 
-```zsh
+```shell
 pf run show-metrics --name "${eval_run_name}0"
 pf run show-metrics --name "${eval_run_name}1"
 pf run show-metrics --name "${eval_run_name}2"
@@ -390,7 +904,7 @@ pf run show-metrics --name "${eval_run_name}2"
 
 結果を可視化します。
 
-```zsh
+```shell
 pf run visualize --name "${base_run_name}0,${eval_run_name}0,${base_run_name}1,${eval_run_name}1,${base_run_name}2,${eval_run_name}2"
 ```
 
@@ -405,3 +919,11 @@ pf run visualize --name "${base_run_name}0,${eval_run_name}0,${base_run_name}1,$
 なお、20 個あるテストデータの各データに対しての実行結果は、Outputs パネル内で確認できます。
 
 # おわりに
+
+Azure Machine Learning を使わずに、Prompt flow の CLI を利用してフローの作成から評価までを実行できました。
+もちろん Azure Machine Learning を使うと今回行ったような Azure OpenAI などの外部サービスへの接続 (connection 設定)やフロー自体の編集も行いやすく便利です。ただフローデプロイの自動化を始め LLMOps を実現する上で YAML ベースのリソース定義や CLI の利用は不可欠だと思うので、ぜひ CLI も活用してください。
+
+ちなみに [Prompt flow の VS Code 拡張機能](https://marketplace.visualstudio.com/items?itemName=prompt-flow.prompt-flow)を使うと今回みたいに HTML ファイルを生成してブラウザで表示、といった流れを行わずにフロー実行結果の可視化表示ができます。connection 設定やフローの編集など、今回 CLI を使って操作した内容が VS Code 上で簡単に利用できるので、Prompt flow を利用する際はぜひ利用してみてください。
+
+![](/images/promptflow-cli/flow-vscode.png)
+_VS Code 上で今回のフローを可視化した様子_
