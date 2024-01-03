@@ -251,7 +251,7 @@ You can manually open it with your web browser, or try SDK to visualize it.
 
 実行結果の可視化がされています。今回はフローへの 20 個の入力/出力があった中で、正解 (ground truth)と予測値 (チャットフロー実行結果)がそれぞれ一致していたかどうかの結果がテーブルで表示されています。また、右上にはおなじみのグラフビューでフローを構成するノードが確認できます。
 
-![](/images/flow-viz-1.png)
+![](/images/promptflow-cli/flow-viz-1.png)
 
 ## プロンプトの改善とその評価
 
@@ -395,7 +395,7 @@ pf run visualize --name "${base_run_name}0,${eval_run_name}0,${base_run_name}1,$
 
 出力された HTML ファイルをブラウザで開きます。
 
-![](/images/flow-viz-2.png)
+![](/images/promptflow-cli/flow-viz-2.png)
 
 左上の Runs & Metrics パネル内の`evel_run_variant_2`が一番 accuracy と error rate の値が良いのが分かります。つまり`chat_variant_2.jinja2`が一番よい回答を生成したということです。
 
