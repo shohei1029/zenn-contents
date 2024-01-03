@@ -2,8 +2,8 @@
 title: "Prompt flowをCLIから使ってみる"
 emoji: "🪄"
 type: "tech" # tech: 技術記事 / idea: アイデア
-topics: ["Azure", "Promptflow", "ChatGPT"]
-published: false
+topics: ["Azure", "Promptflow", "ChatGPT", "OpenAI", "AzureAI"]
+published: true
 publication_name: microsoft
 ---
 
