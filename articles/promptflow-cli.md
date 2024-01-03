@@ -318,6 +318,28 @@ Output path: "/home/shohei/.promptflow/.runs/base_run"
 `pf run show-details`コマンドを利用することで実行結果を各データごとに確認できます。`inputs.question`がフローへの入力で、`outputs.answer`がフローの出力です。
 
 ```shell
+pf run show-details --name $base_run_name
++----+---------------+-----------------+---------------+---------------+
+|    | inputs.chat   | inputs.question |   inputs.line | outputs.ans   |
+|    | _history      |                 |       _number | wer           |
++====+===============+=================+===============+===============+
+|  0 | []            | Compute $\dbi   |             0 | 4368          |
+|    |               | nom{16}{5}$.    |               |               |
++----+---------------+-----------------+---------------+---------------+
+|  1 | []            | Determine the   |             1 | 60            |
+|    |               | number of       |               |               |
+|    |               | ways to         |               |               |
+|    |               | arrange the     |               |               |
+|    |               | letters of      |               |               |
+|    |               | the word        |               |               |
+|    |               | PROOF.          |               |               |
++----+---------------+-----------------+---------------+---------------+
+| ..(省略) | ...           | ...             |...            | ...           |
+```
+
+:::details 省略していない結果はこちら
+
+```shell
   pf run show-details --name $base_run_name
 +----+----------------+--------------+--------------+----------------+
 |    | inputs.quest   | inputs.cha   |   inputs.lin | outputs.answ   |
